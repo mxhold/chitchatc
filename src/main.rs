@@ -10,13 +10,29 @@ fn main() {
 
     let mut buf = BufStream::new(stream);
 
+    print!("Name: ");
+    io::stdout().flush().unwrap();
     let input = read_from_stdin();
 
     write_to_buf(&mut buf, input.as_bytes());
 
-    let response = read_line_from_buf(&mut buf);
+    loop {
+        let input = read_from_stdin();
 
-    print!("{}", response);
+        buf.write(input.as_bytes()).unwrap();
+        buf.flush().unwrap();
+
+        let mut buffer = String::new();
+
+        while buf.read_line(&mut buffer).unwrap() > 0 {
+            if buffer == ".\n" {
+                break
+            } else {
+                print!("{}", buffer);
+                buffer.clear()
+            }
+        }
+    }
 }
 
 fn read_from_stdin() -> String {
@@ -29,11 +45,4 @@ fn read_from_stdin() -> String {
 fn write_to_buf(buf: &mut BufStream<TcpStream>, bytes: &[u8]) {
     buf.write(bytes).unwrap();
     buf.flush().unwrap();
-}
-
-fn read_line_from_buf(buf: &mut BufStream<TcpStream>) -> String {
-    let mut response = String::new();
-    buf.read_line(&mut response).unwrap();
-    
-    response
 }
