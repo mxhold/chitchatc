@@ -6,46 +6,76 @@ use std::net::TcpStream;
 use bufstream::BufStream;
 use std::thread;
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 fn main() {
-    let stream = TcpStream::connect("127.0.0.1:4574").unwrap();
+    let tcp_stream = TcpStream::connect("127.0.0.1:4574").unwrap();
 
-    let mut buf = BufStream::new(stream);
+    tcp_stream.set_read_timeout(Some(Duration::from_millis(30)));
+
+    let mut buf_stream = BufStream::new(tcp_stream);
 
     print!("Name: ");
     io::stdout().flush().unwrap();
     let input = read_from_stdin();
 
-    write_to_buf(&mut buf, input.as_bytes());
+    write_to_buf(&mut buf_stream, input.as_bytes());
 
-    let (tx, rx) = channel();
+    let (i_tx, i_rx) = channel();
 
     thread::spawn(move|| {
         loop {
+            println!("reading from stdin");
             let input = read_from_stdin();
-            tx.send(input).unwrap();
+            println!("done reading from stdin");
+            i_tx.send(input).unwrap();
         }
     });
 
+    let (o_tx, o_rx) = channel();
+
+    let buf_stream = Arc::new(Mutex::new(buf_stream));
+
+    {
+        let buf_stream = buf_stream.clone();
+        thread::spawn(move|| {
+            loop {
+                let mut output = String::new();
+
+                let mut buf_stream = buf_stream.lock().unwrap();
+
+                while buf_stream.read_line(&mut output).unwrap_or(0) > 0 {
+                    if output == ".\n" {
+                        break
+                    } else {
+                        o_tx.send(output.clone()).unwrap();
+                        output.clear()
+                    }
+                }
+            }
+        });
+    }
+
     loop {
-        match rx.try_recv() {
+        match i_rx.try_recv() {
             Ok(input) => {
-                buf.write(input.as_bytes()).unwrap();
-                buf.flush().unwrap();
+                let mut buf_stream = buf_stream.lock().unwrap();
+                buf_stream.write(input.as_bytes()).unwrap();
+                buf_stream.flush().unwrap();
             },
             _ => (),
         }
 
-        let mut buffer = String::new();
-
-        while buf.read_line(&mut buffer).unwrap() > 0 {
-            if buffer == ".\n" {
-                break
-            } else {
-                print!("{}", buffer);
-                buffer.clear()
-            }
+        match o_rx.try_recv() {
+            Ok(output) => {
+                print!("{}", output);
+                io::stdout().flush().unwrap();
+            },
+            _ => (),
         }
+
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
