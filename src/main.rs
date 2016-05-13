@@ -4,6 +4,8 @@ use std::io::prelude::*;
 use std::io;
 use std::net::TcpStream;
 use bufstream::BufStream;
+use std::thread;
+use std::sync::mpsc::channel;
 
 fn main() {
     let stream = TcpStream::connect("127.0.0.1:4574").unwrap();
@@ -16,11 +18,23 @@ fn main() {
 
     write_to_buf(&mut buf, input.as_bytes());
 
-    loop {
-        let input = read_from_stdin();
+    let (tx, rx) = channel();
 
-        buf.write(input.as_bytes()).unwrap();
-        buf.flush().unwrap();
+    thread::spawn(move|| {
+        loop {
+            let input = read_from_stdin();
+            tx.send(input).unwrap();
+        }
+    });
+
+    loop {
+        match rx.try_recv() {
+            Ok(input) => {
+                buf.write(input.as_bytes()).unwrap();
+                buf.flush().unwrap();
+            },
+            _ => (),
+        }
 
         let mut buffer = String::new();
 
